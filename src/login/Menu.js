@@ -12,7 +12,7 @@ function Menu({ onLogout, currentUser }) {
         console.log('Current user ID:', currentUser.id);
 
         try {
-            const response = await axios.get(`http://localhost:8080/game/usersListFight?currentEmail=${currentUser.email}`);
+            const response = await axios.get(`http://localhost:8080/game/usersListFight?currentEmail=${currentUser.account.email}`);
             console.log('Fetched players:', response.data);
             setPlayers(response.data);
         } catch (error) {
@@ -31,12 +31,9 @@ function Menu({ onLogout, currentUser }) {
     };
 
     const handleLogout = async () => {
-        console.log(currentUser);
-        console.log(currentUser.email);
         try {
             await axios.post('http://localhost:8080/auth/logout', {
                 email: currentUser.account.email
-
             }, {
                 withCredentials: true
             });
@@ -47,17 +44,26 @@ function Menu({ onLogout, currentUser }) {
     };
 
     useEffect(() => {
-        const socket = new SockJS('http://localhost:8080/ws');
+        if (!currentUser || (!currentUser.account?.email && !currentUser.email)) {
+            console.error('User email is not defined');
+            return;
+        }
+
         const stompClient = new Client({
-            webSocketFactory: () => socket,
+            webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
             reconnectDelay: 5000,
+            connectHeaders: {
+                email: currentUser.account?.email || currentUser.email  // Используем правильное поле для email
+            },
             debug: (str) => {
                 console.log('STOMP: ' + str);
             },
         });
 
         stompClient.onConnect = () => {
-            console.log('Connected to WebSocket');
+            console.log('Connected to WebSocket with email:', currentUser.account?.email || currentUser.email);
+
+            // Подписка на сообщения WebSocket
             stompClient.subscribe('/topic/userStatus', (message) => {
                 console.log('Received message:', message.body);
                 const updatedUser = JSON.parse(message.body);
@@ -75,7 +81,8 @@ function Menu({ onLogout, currentUser }) {
         return () => {
             stompClient.deactivate();
         };
-    }, []);
+    }, [currentUser.account?.email, currentUser.email]);
+
 
 
     return (
