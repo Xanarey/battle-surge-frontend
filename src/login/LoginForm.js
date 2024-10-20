@@ -11,11 +11,12 @@ function LoginForm({ onLogin }) {
 
         try {
             const response = await axios.post('http://localhost:8080/auth/login', { email, password });
-            onLogin(response.data);
+            onLogin(response.data); // response.data теперь содержит объект пользователя
         } catch (error) {
             setErrorMessage('Invalid email or password');
         }
     };
+
 
     return (
         <div className="login-form">

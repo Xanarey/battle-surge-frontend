@@ -10,9 +10,10 @@ function App() {
 
     const handleLogin = (userData) => {
         console.log('Logged in user:', userData);
-        setUser(userData);
+        setUser(userData); // Сохраняем объект пользователя
         setIsLoggedIn(true);
     };
+
 
 
     const handleFindPlayers = () => {
