@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, {useEffect, useState, useCallback, useRef} from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import axios from 'axios';
@@ -6,6 +6,7 @@ import axios from 'axios';
 function Menu({ onLogout, currentUser }) {
     const [players, setPlayers] = useState([]);
     const [isFindingPlayers, setIsFindingPlayers] = useState(false);
+    const stompClientRef = useRef(null);
 
     const handleFindPlayers = useCallback(async () => {
         console.log('Current user in Menu:', currentUser);
@@ -44,26 +45,18 @@ function Menu({ onLogout, currentUser }) {
     };
 
     useEffect(() => {
-        if (!currentUser || (!currentUser.account?.email && !currentUser.email)) {
-            console.error('User email is not defined');
-            return;
-        }
-
         const stompClient = new Client({
             webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
             reconnectDelay: 5000,
-            connectHeaders: {
-                email: currentUser.account?.email || currentUser.email  // Используем правильное поле для email
-            },
             debug: (str) => {
                 console.log('STOMP: ' + str);
             },
         });
 
         stompClient.onConnect = () => {
-            console.log('Connected to WebSocket with email:', currentUser.account?.email || currentUser.email);
+            console.log('Connected to WebSocket');
 
-            // Подписка на сообщения WebSocket
+            // Подписываемся на статус игроков, когда WebSocket подключён
             stompClient.subscribe('/topic/userStatus', (message) => {
                 console.log('Received message:', message.body);
                 const updatedUser = JSON.parse(message.body);
@@ -77,11 +70,22 @@ function Menu({ onLogout, currentUser }) {
         };
 
         stompClient.activate();
+        stompClientRef.current = stompClient;  // Сохраняем stompClient в ref
 
         return () => {
             stompClient.deactivate();
         };
-    }, [currentUser.account?.email, currentUser.email]);
+    }, []);  // WebSocket инициализируется один раз
+
+    useEffect(() => {
+        if (currentUser && currentUser.account.email && stompClientRef.current) {
+            console.log(`Updating WebSocket headers with email: ${currentUser.account.email}`);
+            stompClientRef.current.connectHeaders = {
+                email: currentUser.account.email  // Обновляем email после инициализации
+            };
+        }
+    }, [currentUser]);  // Обновляем headers, если currentUser изменится
+
 
 
 
