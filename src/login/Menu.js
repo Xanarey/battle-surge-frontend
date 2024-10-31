@@ -146,20 +146,49 @@ function Menu({ onLogout, currentUser }) {
     // Обработчики для принятия и отклонения приглашения
     const handleAcceptInvite = async () => {
         console.log('Invitation accepted!');
-        setInviteModalVisible(false);  // Закрываем модальное окно
+        setInviteModalVisible(false);
 
         try {
-            // Отправляем на сервер информацию о принятии приглашения
             await axios.post('http://localhost:8080/game/acceptInvite', {
-                inviterId: inviterId, // Вам нужно сохранить inviterId
+                inviterId: inviterId,
                 inviteeId: currentUser.id,
             });
 
-            // Ожидаем начала битвы (можно добавить индикатор загрузки)
         } catch (error) {
             console.error('Error accepting invite:', error);
         }
     };
+
+    useEffect(() => {
+        if (currentUser && currentUser.id) {
+            const stompClient = new Client({
+                webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+                reconnectDelay: 5000,
+                connectHeaders: {
+                    userId: currentUser.id.toString(),
+                },
+            });
+
+            stompClient.onConnect = () => {
+                console.log('Connected to WebSocket');
+
+                stompClient.subscribe('/user/queue/startBattle', (message) => {
+                    const battleInfo = JSON.parse(message.body);
+                    const battleId = battleInfo.battleId;
+                    const opponentName = battleInfo.opponentName;
+
+                    navigate(`/battle/${battleId}`, { state: { opponentName } });
+                });
+            };
+
+            stompClient.activate();
+            stompClientRef.current = stompClient;
+
+            return () => {
+                stompClient.deactivate();
+            };
+        }
+    }, [currentUser, navigate]);
 
     const handleDeclineInvite = async () => {
         console.log('Invitation declined!');
