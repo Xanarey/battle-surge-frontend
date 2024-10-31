@@ -1,13 +1,26 @@
-import React, {useEffect, useState, useCallback, useRef} from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Client } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import axios from 'axios';
+import { handleInvite } from '../battle/InviteLogic';
+import { InviteModal } from '../battle/InviteLogic';  // Импортируем InviteModal
+import { useNavigate } from 'react-router-dom';
+
 
 function Menu({ onLogout, currentUser }) {
     const [players, setPlayers] = useState([]);
     const [isFindingPlayers, setIsFindingPlayers] = useState(false);
     const stompClientRef = useRef(null);
+    const [inviterId, setInviterId] = useState(null);
+    const [inviteModalVisible, setInviteModalVisible] = useState(false);  // Состояние для показа модального окна
+    const [inviter, setInviter] = useState(null);  // Кто отправил приглашение
+    const navigate = useNavigate();
+    const [declineNotificationVisible, setDeclineNotificationVisible] = useState(false);
+    const [declineMessage, setDeclineMessage] = useState('');
 
+
+
+    // Запрос списка игроков
     const handleFindPlayers = useCallback(async () => {
         console.log('Current user in Menu:', currentUser);
         console.log('Current user ID:', currentUser.id);
@@ -44,53 +57,147 @@ function Menu({ onLogout, currentUser }) {
         }
     };
 
+    const navigateToBattle = useCallback((battleId, opponentName) => {
+        navigate(`/battle/${battleId}`, { state: { opponentName } });
+    }, [navigate]);
+
+    // Подключение к WebSocket и подписка на события
     useEffect(() => {
-        const stompClient = new Client({
-            webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
-            reconnectDelay: 5000,
-            debug: (str) => {
-                console.log('STOMP: ' + str);
-            },
-        });
-
-        stompClient.onConnect = () => {
-            console.log('Connected to WebSocket');
-
-            // Подписываемся на статус игроков, когда WebSocket подключён
-            stompClient.subscribe('/topic/userStatus', (message) => {
-                console.log('Received message:', message.body);
-                const updatedUser = JSON.parse(message.body);
-
-                setPlayers((prevPlayers) => {
-                    return prevPlayers.map((player) =>
-                        player.id === updatedUser.id ? updatedUser : player
-                    );
-                });
+        if (currentUser && currentUser.id) {
+            const stompClient = new Client({
+                webSocketFactory: () => new SockJS('http://localhost:8080/ws'),
+                reconnectDelay: 5000,
+                debug: (str) => {
+                    console.log('STOMP: ' + str);
+                },
+                connectHeaders: {
+                    userId: currentUser.id.toString(),
+                    email: currentUser.account.email
+                },
             });
-        };
 
-        stompClient.activate();
-        stompClientRef.current = stompClient;  // Сохраняем stompClient в ref
+            stompClient.onConnect = () => {
+                console.log('Connected to WebSocket');
 
-        return () => {
-            stompClient.deactivate();
-        };
-    }, []);  // WebSocket инициализируется один раз
+                // Подписываемся на канал с обновлениями статуса пользователей
+                stompClient.subscribe('/topic/userStatus', (message) => {
+                    console.log('Received message:', message.body);
+                    const updatedUser = JSON.parse(message.body);
 
-    useEffect(() => {
-        if (currentUser && currentUser.account.email && stompClientRef.current) {
-            console.log(`Updating WebSocket headers with email: ${currentUser.account.email}`);
-            stompClientRef.current.connectHeaders = {
-                email: currentUser.account.email  // Обновляем email после инициализации
+                    setPlayers((prevPlayers) => {
+                        return prevPlayers.map((player) =>
+                            player.id === updatedUser.id ? updatedUser : player
+                        );
+                    });
+                });
+
+                // Подписываемся на канал для приглашений
+                stompClient.subscribe('/topic/invite', (message) => {
+                    console.log('Received invite message:', message.body);
+                    const invite = JSON.parse(message.body);
+                    if (invite.inviteeId === currentUser.id) {
+                        setInviter(invite.inviterName);
+                        setInviterId(invite.inviterId); // Сохраняем inviterId
+                        setInviteModalVisible(true);
+                    }
+                });
+
+                // Подписка на личные сообщения для приглашений
+                stompClient.subscribe('/user/queue/invite', (message) => {
+                    const invite = JSON.parse(message.body);
+                    setInviter(invite.inviterName);
+                    setInviterId(invite.inviterId);
+                    setInviteModalVisible(true);
+                });
+
+                // Подписка на старт битвы
+                stompClient.subscribe('/user/queue/startBattle', (message) => {
+                    const battleInfo = JSON.parse(message.body);
+                    const battleId = battleInfo.battleId;
+                    const opponentName = battleInfo.opponentName;
+
+                    // Перенаправляем на страницу битвы с battleId
+                    navigateToBattle(battleId, opponentName);
+                });
+
+                // Подписка на уведомления об отказе
+                stompClient.subscribe('/user/queue/declineNotification', (message) => {
+                    console.log("Received decline notification message:", message);
+                    const declineNotification = JSON.parse(message.body);
+                    console.log("Parsed decline notification:", declineNotification);
+                    setDeclineMessage(declineNotification.message);
+                    setDeclineNotificationVisible(true);
+                });
+
+
+
+            };
+
+            stompClient.activate();
+            stompClientRef.current = stompClient;
+
+            return () => {
+                stompClient.deactivate();
             };
         }
-    }, [currentUser]);  // Обновляем headers, если currentUser изменится
+    }, [currentUser, navigateToBattle]);
+
+
+    // Обработчики для принятия и отклонения приглашения
+    const handleAcceptInvite = async () => {
+        console.log('Invitation accepted!');
+        setInviteModalVisible(false);  // Закрываем модальное окно
+
+        try {
+            // Отправляем на сервер информацию о принятии приглашения
+            await axios.post('http://localhost:8080/game/acceptInvite', {
+                inviterId: inviterId, // Вам нужно сохранить inviterId
+                inviteeId: currentUser.id,
+            });
+
+            // Ожидаем начала битвы (можно добавить индикатор загрузки)
+        } catch (error) {
+            console.error('Error accepting invite:', error);
+        }
+    };
+
+    const handleDeclineInvite = async () => {
+        console.log('Invitation declined!');
+        setInviteModalVisible(false);  // Закрываем модальное окно
+
+        try {
+            // Отправляем на сервер информацию об отказе от приглашения
+            await axios.post('http://localhost:8080/game/declineInvite', {
+                inviterId: inviterId,
+                inviteeId: currentUser.id
+            });
+
+            console.log('Decline request sent successfully');
+        } catch (error) {
+            console.error('Error declining invite:', error);
+        }
+    };
 
 
 
 
     return (
         <div className="menu">
+            {declineNotificationVisible && (
+                <div className="decline-notification-modal">
+                    <p>{declineMessage}</p>
+                    <button onClick={() => setDeclineNotificationVisible(false)}>OK</button>
+                </div>
+            )}
+            {/* Модальное окно приглашения */}
+            {inviteModalVisible && (
+                <InviteModal
+                    inviter={inviter}
+                    onAccept={handleAcceptInvite}
+                    onDecline={handleDeclineInvite}
+                />
+            )}
+
             {!isFindingPlayers ? (
                 <>
                     <h2>Game Menu</h2>
@@ -105,6 +212,11 @@ function Menu({ onLogout, currentUser }) {
                             players.map((player) => (
                                 <li key={player.id}>
                                     {player.username} - {player.onlineStatus ? 'Online' : 'Offline'}
+                                    {player.onlineStatus && (
+                                        <button onClick={() => handleInvite(currentUser, player)}>
+                                            Invite to Battle
+                                        </button>
+                                    )}
                                 </li>
                             ))
                         ) : (
