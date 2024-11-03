@@ -1,26 +1,28 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+import React, { useContext, useState } from 'react';
+import { UserContext } from '../battle/UserContext';
+import { useNavigate } from 'react-router-dom';
 
-function LoginForm({ onLogin }) {
+function LoginForm() {
+    const { login } = useContext(UserContext);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    const navigate = useNavigate();
 
     const handleLogin = async (event) => {
         event.preventDefault();
 
         try {
-            const response = await axios.post('http://localhost:8080/auth/login', { email, password });
-            onLogin(response.data); // response.data теперь содержит объект пользователя
+            await login(email, password);
+            navigate('/');
         } catch (error) {
-            setErrorMessage('Invalid email or password');
+            setErrorMessage('Неверный email или пароль');
         }
     };
 
-
     return (
         <div className="login-form">
-            <h2>Login</h2>
+            <h2>Вход</h2>
             <form onSubmit={handleLogin}>
                 <input
                     type="email"
@@ -33,12 +35,12 @@ function LoginForm({ onLogin }) {
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Password"
+                    placeholder="Пароль"
                     required
                 />
-                <button type="submit">Login</button>
+                <button type="submit">Войти</button>
             </form>
-            {errorMessage && <p>{errorMessage}</p>}
+            {errorMessage && <p style={{ color: 'red' }}>{errorMessage}</p>}
         </div>
     );
 }

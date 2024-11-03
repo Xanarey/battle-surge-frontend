@@ -1,13 +1,9 @@
 import axios from 'axios';
 import React from 'react';
 
-
-
-export const handleInvite = async (currentUser, player) => {
-    // console.log("CHECK currentUser :::: " + currentUser.id)
-    // console.log("CHECK player :::: " + player.id)
+export const sendInvite = async (currentUser, player) => {
     try {
-        await axios.post(`http://localhost:8080/game/invite`, {
+        await axios.post(`http://localhost:8080/invites`, {
             inviterId: currentUser.id,
             inviteeId: player.id,
         });
